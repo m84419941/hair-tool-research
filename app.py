@@ -42,8 +42,24 @@ def analyse(product,sources):
     evidence='\n\n'.join(f"[{s['id']}] {s['title'][:100]} ({s['kind']})\n{s['text'][:700]}" for s in sources[:20])
     schema={'executive_summary':'string','positives':[{'finding':'string','detail':'string','source_ids':['S1']}],'frustrations':[{'finding':'string','detail':'string','source_ids':['S1']}],'hair_type_insights':[{'group':'string','finding':'string','source_ids':['S1']}],'themes':[{'theme':'string','direction':'positive|negative|mixed','strength':'high|medium|low','source_ids':['S1']}],'comparisons':[{'product':'string','finding':'string','source_ids':['S1']}],'opportunities':[{'opportunity':'string','rationale':'string','source_ids':['S1']}],'limitations':['string']}
     prompt=f"""Analyse public evidence about {product}. Use ONLY supplied evidence. Consolidate duplicates. Never invent frequency, hair type, comparison or performance claims. Every finding needs 1-4 source_ids that directly support it. Taxonomy: {', '.join(TAXONOMY)}. Return valid JSON matching: {json.dumps(schema)}\nEVIDENCE:\n{evidence}"""
-    r=Groq(api_key=GROQ).chat.completions.create(model=MODEL,messages=[{'role':'user','content':prompt}],response_format={'type':'json_object'},temperature=0.1,max_tokens=1200)
-    return json.loads(r.choices[0].message.content)
+    r=Groq(api_key=GROQ).chat.completions.create(
+        model=MODEL,
+        messages=[
+            {'role':'system','content':'Return ONLY one valid JSON object. No markdown, no code fences, no commentary.'},
+            {'role':'user','content':prompt}
+        ],
+        temperature=0,
+        max_tokens=1400
+    )
+    raw=(r.choices[0].message.content or '').strip()
+    raw=re.sub(r'^```(?:json)?\s*|\s*```$','',raw,flags=re.I|re.S).strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        start,end=raw.find('{'),raw.rfind('}')
+        if start >= 0 and end > start:
+            return json.loads(raw[start:end+1])
+        raise ValueError('Groq returned an incomplete structured response. Please retry once.')
 def links(ids,sm):
     return ' · '.join(f"[{i}: {sm[i]['title'][:55]}]({sm[i]['url']})" for i in ids if i in sm)
 def findings(items,sm,title='finding',detail='detail'):
