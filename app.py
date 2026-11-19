@@ -2,15 +2,15 @@ import os, re, json, requests
 from urllib.parse import urlparse, parse_qs
 import streamlit as st
 from youtube_transcript_api import YouTubeTranscriptApi
-from openai import OpenAI
+from groq import Groq
 
 st.set_page_config(page_title='Hair Tool Research', page_icon='🔎', layout='wide')
 st.markdown('''<style>
 .stApp{background:#f7f3f7}.block-container{max-width:1200px}.finding{background:white;border-radius:14px;padding:14px 16px;margin:9px 0;border-left:5px solid #936196;box-shadow:0 4px 14px #4327460b}.positive{border-left-color:#4e9d68}.negative{border-left-color:#c65f67}.evidence{font-size:.85rem;color:#6f6672}.pill{display:inline-block;background:#ebdfec;border-radius:999px;padding:5px 9px;margin:3px;font-size:.82rem}</style>''', unsafe_allow_html=True)
 
 TAVILY = st.secrets.get('TAVILY_API_KEY', os.getenv('TAVILY_API_KEY',''))
-OPENAI = st.secrets.get('OPENAI_API_KEY', os.getenv('OPENAI_API_KEY',''))
-MODEL = st.secrets.get('OPENAI_MODEL', os.getenv('OPENAI_MODEL','gpt-4.1-mini'))
+GROQ = st.secrets.get('GROQ_API_KEY', os.getenv('GROQ_API_KEY',''))
+MODEL = st.secrets.get('GROQ_MODEL', os.getenv('GROQ_MODEL','openai/gpt-oss-20b'))
 
 TAXONOMY = ['drying speed','styling speed','curl formation','curl longevity','smoothing','frizz','shine','volume','heat perception','damage perception','noise','weight','balance','grip','controls','attachments','learning curve','hair type','hair length','skill level','price and value','returns']
 
@@ -58,7 +58,7 @@ def collect(product):
     return sources[:24]
 
 def analyse(product,sources):
-    evidence='\n\n'.join(f"[{s['id']}] {s['title']} ({s['kind']})\n{s['text']}" for s in sources)
+    evidence='\n\n'.join(f"[{s['id']}] {s['title']} ({s['kind']})\n{s['text'][:1800]}" for s in sources[:18])
     schema={
       'executive_summary':'string','positives':[{'finding':'string','detail':'string','source_ids':['S1']}],
       'frustrations':[{'finding':'string','detail':'string','source_ids':['S1']}],
@@ -70,7 +70,7 @@ def analyse(product,sources):
     prompt=f'''You are a rigorous product insights researcher analysing public evidence about {product}.
 Use only the supplied evidence. Do not turn absence of evidence into a finding. Separate reviewer claims from measured facts. Consolidate duplicates. Every finding MUST have 1-4 valid source_ids that directly support it. Prefer agreement across independent sources. Flag hair-type evidence only when explicitly stated. Taxonomy: {', '.join(TAXONOMY)}.
 Return strict JSON matching this schema: {json.dumps(schema)}\n\nEVIDENCE:\n{evidence}'''
-    client=OpenAI(api_key=OPENAI)
+    client=Groq(api_key=GROQ)
     r=client.chat.completions.create(model=MODEL,messages=[{'role':'user','content':prompt}],response_format={'type':'json_object'},temperature=0.1)
     return json.loads(r.choices[0].message.content)
 
@@ -88,13 +88,13 @@ st.caption('Live web + YouTube evidence synthesis with citations on every findin
 with st.sidebar:
     st.subheader('Live connectors')
     st.write('Web search:', '✅' if TAVILY else '❌ Tavily key needed')
-    st.write('AI synthesis:', '✅' if OPENAI else '❌ OpenAI key needed')
+    st.write('AI synthesis:', '✅' if GROQ else '❌ Groq key needed')
     st.caption('YouTube transcripts are retrieved when public captions are available.')
 product=st.text_input('Search a product',placeholder='e.g. Shark FlexStyle')
 run=st.button('Analyse product',type='primary',use_container_width=True)
 if run:
     if not product.strip():st.error('Enter a product name.')
-    elif not TAVILY or not OPENAI:st.error('Add TAVILY_API_KEY and OPENAI_API_KEY in .streamlit/secrets.toml. See README.')
+    elif not TAVILY or not GROQ:st.error('Add TAVILY_API_KEY and GROQ_API_KEY in .streamlit/secrets.toml. See README.')
     else:
         with st.status('Collecting live evidence…',expanded=True) as status:
             sources=collect(product.strip()); st.write(f'Collected {len(sources)} usable web and YouTube sources.')
